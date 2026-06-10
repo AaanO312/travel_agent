@@ -17,17 +17,15 @@ def build_graph() -> StateGraph:
 
     workflow.set_entry_point("weather")
 
-    # 天气查询后 → 并行执行行程规划 + 预算估算
+    # 天气 → 并行（行程 + 预算）
     workflow.add_edge("weather", "itinerary")
     workflow.add_edge("weather", "budget")
 
-    # 两个都完成后 → 协调合并
+    # 两个都完成 → 协调合并
     workflow.add_edge("itinerary", "coordinator")
     workflow.add_edge("budget", "coordinator")
 
     workflow.add_edge("coordinator", END)
 
     memory = MemorySaver()
-    app = workflow.compile(checkpointer=memory)
-
-    return app
+    return workflow.compile(checkpointer=memory)

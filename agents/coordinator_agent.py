@@ -5,7 +5,7 @@ from graph.model import get_model
 from utils.config_loader import load_prompt
 from utils.logger import logger
 
-MAX_REVISIONS = 3
+MAX_REVISIONS = 2
 
 
 def build_coordinator_prompt(state: dict) -> str:
@@ -31,6 +31,36 @@ def stream_coordinator_response(state: dict) -> Generator[str, None, str]:
     """流式生成协调 Agent 的回复，逐 chunk yield 给 Streamlit 展示"""
     model = get_model()
     prompt = build_coordinator_prompt(state)
+
+    full_content = ""
+    for chunk in model.stream(prompt):
+        full_content += chunk.content
+        yield chunk.content
+
+    return full_content
+
+
+def build_chat_prompt(state: dict) -> str:
+    """构建聊天阶段的 prompt（旅行规划师口吻，非审核模式）"""
+    prompt_template = load_prompt("chat_prompt")
+    return prompt_template.format(
+        destination=state["destination"],
+        start_date=state["start_date"],
+        end_date=state["end_date"],
+        budget=state["budget"],
+        num_people=state["num_people"],
+        preferences=state["preferences"],
+        weather_summary=state.get("weather_summary", ""),
+        itinerary=state.get("itinerary", ""),
+        budget_plan=state.get("budget_plan", ""),
+        user_feedback=state.get("user_feedback", ""),
+    )
+
+
+def stream_chat_response(state: dict) -> Generator[str, None, str]:
+    """聊天阶段流式生成：旅行规划师语气，逐 token 输出调整后的方案"""
+    model = get_model()
+    prompt = build_chat_prompt(state)
 
     full_content = ""
     for chunk in model.stream(prompt):

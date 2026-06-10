@@ -181,29 +181,22 @@ if st.session_state["phase"] in ("review", "chat"):
         current = dict(snap.values)
         current["user_feedback"] = feedback
 
-        # 流式输出：协调 Agent 逐 token 生成调整方案
+        # 流式输出：旅行规划师语气聊天回复，逐 token 生成调整方案
         with st.chat_message("assistant"):
             response_placeholder = st.empty()
 
-            from agents.coordinator_agent import stream_coordinator_response, clean_for_output, extract_issues
+            from agents.coordinator_agent import stream_chat_response
 
             full_response = ""
-            for chunk in stream_coordinator_response(current):
+            for chunk in stream_chat_response(current):
                 full_response += chunk
-                # 闪烁光标效果
                 response_placeholder.markdown(full_response + "▌")
 
-            # 移除光标，显示最终结果
             response_placeholder.markdown(full_response)
 
-        # 解析响应，更新方案数据
-        approved = "审核通过" in full_response or "PASS" in full_response
-        if approved:
-            st.session_state["plan_data"]["merged_plan"] = clean_for_output(full_response)
-            st.session_state["plan_data"]["conflicts"] = ""
-        else:
-            st.session_state["plan_data"]["merged_plan"] = full_response
-            st.session_state["plan_data"]["conflicts"] = extract_issues(full_response)
+        # 聊天模式下的回复本身就是完整方案，直接更新
+        st.session_state["plan_data"]["merged_plan"] = full_response
+        st.session_state["plan_data"]["conflicts"] = ""
 
         st.session_state["phase"] = "chat"
         st.session_state["chat_history"].append({"role": "assistant", "content": "已根据你的反馈调整方案～"})

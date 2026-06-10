@@ -25,8 +25,10 @@ def budget_agent(state: TravelState) -> dict:
         revision_notes=_format_revision(revision),
     )
 
-    response = model.invoke(prompt)
-    content = response.content.strip()
+    content = ""
+    for chunk in model.stream(prompt):
+        content += chunk.content
+    content = content.strip()
     logger.info(f"[Budget Agent] 预算{'重新' if revision else ''}估算完成，{len(content)} 字符")
     return {"budget_plan": content}
 

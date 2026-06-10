@@ -25,8 +25,10 @@ def itinerary_agent(state: TravelState) -> dict:
         budget_plan=state.get("budget_plan", ""),
     )
 
-    response = model.invoke(prompt)
-    content = response.content.strip()
+    content = ""
+    for chunk in model.stream(prompt):
+        content += chunk.content
+    content = content.strip()
     logger.info(f"[Itinerary Agent] 行程{'重新' if revision else ''}规划完成，{len(content)} 字符")
     return {"itinerary": content}
 

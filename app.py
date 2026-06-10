@@ -91,23 +91,54 @@ if st.session_state["phase"] == "weather":
 
 # ---- 阶段3：生成行程+预算+协调 ----
 if st.session_state["phase"] == "running":
-    with st.spinner("4 个 Agent 协作中...\n\n行程 Agent + 预算 Agent 并行执行"):
-        graph = st.session_state["graph"]
-        config = {"configurable": {"thread_id": st.session_state["thread_id"]}}
+    # 进度指示器（实时更新，用户看到在推进）
+    status_box = st.empty()
 
-        events = graph.stream(None, config, stream_mode="values")
-        for _ in events:
-            pass
+    # 折叠区域：展示中间产物（行程/预算的初稿）
+    with st.expander("🔍 查看 Agent 协作过程", expanded=True):
+        progress_col1, progress_col2 = st.columns(2)
+        with progress_col1:
+            itinerary_status = st.empty()
+        with progress_col2:
+            budget_status = st.empty()
 
-        snap = graph.get_state(config)
-        st.session_state["plan_data"] = {
-            "merged_plan": snap.values.get("merged_plan", ""),
-            "conflicts": snap.values.get("conflicts", ""),
-            "itinerary": snap.values.get("itinerary", ""),
-            "budget_plan": snap.values.get("budget_plan", ""),
-        }
-        st.session_state["phase"] = "review"
-        st.rerun()
+    status_box.info("🚀 4 个 Agent 开始协作...")
+
+    graph = st.session_state["graph"]
+    config = {"configurable": {"thread_id": st.session_state["thread_id"]}}
+
+    # stream_mode="updates"：每个 Agent 完成就立即返回，不等全部结束
+    events = graph.stream(None, config, stream_mode="updates")
+
+    node_count = 0
+    for event in events:
+        node_name = list(event.keys())[0]
+        node_data = event[node_name]
+        node_count += 1
+
+        if node_name == "itinerary":
+            status_box.info(f"📋 行程规划完成，等待预算 + 审核...")
+            itinerary_status.success(f"✅ 行程 Agent（{len(node_data.get('itinerary', ''))} 字符）")
+        elif node_name == "budget":
+            status_box.info(f"💰 预算估算完成，等待审核...")
+            budget_status.success(f"✅ 预算 Agent（{len(node_data.get('budget_plan', ''))} 字符）")
+        elif node_name == "coordinator":
+            approved = node_data.get("coordinator_approved", False)
+            rev_count = node_data.get("revision_count", 0)
+            if approved:
+                status_box.success("✅ 审核通过！方案已生成")
+            else:
+                status_box.warning(f"🔄 第 {rev_count} 轮修订中，正在优化方案...")
+
+    snap = graph.get_state(config)
+    st.session_state["plan_data"] = {
+        "merged_plan": snap.values.get("merged_plan", ""),
+        "conflicts": snap.values.get("conflicts", ""),
+        "itinerary": snap.values.get("itinerary", ""),
+        "budget_plan": snap.values.get("budget_plan", ""),
+    }
+    st.session_state["phase"] = "review"
+    st.rerun()
 
 # ---- 阶段4：展示方案 + 对话式调整 ----
 if st.session_state["phase"] in ("review", "chat"):
@@ -143,26 +174,39 @@ if st.session_state["phase"] in ("review", "chat"):
     if feedback:
         st.session_state["chat_history"].append({"role": "user", "content": feedback})
 
-        with st.spinner("协调 Agent 正在调整方案..."):
-            from agents.coordinator_agent import coordinator_agent
-            from graph.state import TravelState
-            import copy
+        # 获取当前状态
+        snap = st.session_state["graph"].get_state(
+            {"configurable": {"thread_id": st.session_state["thread_id"]}}
+        )
+        current = dict(snap.values)
+        current["user_feedback"] = feedback
 
-            # 把用户反馈注入到协调 Agent 重新生成
-            snap = st.session_state["graph"].get_state(
-                {"configurable": {"thread_id": st.session_state["thread_id"]}}
-            )
-            current = dict(snap.values)
-            current["user_feedback"] = feedback
+        # 流式输出：协调 Agent 逐 token 生成调整方案
+        with st.chat_message("assistant"):
+            response_placeholder = st.empty()
 
-            result = coordinator_agent(current)
-            new_plan = result.get("merged_plan", "")
+            from agents.coordinator_agent import stream_coordinator_response, clean_for_output, extract_issues
 
-            st.session_state["plan_data"]["merged_plan"] = result.get("merged_plan", new_plan)
-            st.session_state["plan_data"]["conflicts"] = result.get("conflicts", "")
-            st.session_state["phase"] = "chat"
+            full_response = ""
+            for chunk in stream_coordinator_response(current):
+                full_response += chunk
+                # 闪烁光标效果
+                response_placeholder.markdown(full_response + "▌")
 
-        st.session_state["chat_history"].append({"role": "assistant", "content": "已根据你的反馈调整方案，看看现在的版本～"})
+            # 移除光标，显示最终结果
+            response_placeholder.markdown(full_response)
+
+        # 解析响应，更新方案数据
+        approved = "审核通过" in full_response or "PASS" in full_response
+        if approved:
+            st.session_state["plan_data"]["merged_plan"] = clean_for_output(full_response)
+            st.session_state["plan_data"]["conflicts"] = ""
+        else:
+            st.session_state["plan_data"]["merged_plan"] = full_response
+            st.session_state["plan_data"]["conflicts"] = extract_issues(full_response)
+
+        st.session_state["phase"] = "chat"
+        st.session_state["chat_history"].append({"role": "assistant", "content": "已根据你的反馈调整方案～"})
         st.rerun()
 
     # 满意按钮

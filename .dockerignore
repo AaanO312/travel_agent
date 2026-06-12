@@ -1,0 +1,22 @@
+# 虚拟环境（容器里会自己装）
+.venv
+
+# Python 缓存
+__pycache__
+*.pyc
+*.pyo
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# 日志
+logs/
+
+# macOS / Windows 杂项
+.DS_Store
+Thumbs.db
